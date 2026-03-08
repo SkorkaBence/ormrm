@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ormrm"
+authors = [{ name = "Bence Skorka" }]
+version = "0.0.0"
+description = "Object-Relational-Mapping-Relational-Mapping (ORMRM)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+classifiers = ["Development Status :: 2 - Pre-Alpha", "Environment :: Console"]
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+    "black",
+    "mock",
+    "mypy",
+    "pytest-cov",
+    "pytest-mock",
+    "pytest-mypy",
+    "pytest-timeout",
+    "pytest",
+    "qrcode",
+    "types-mock",
+]
+
+[tool.pytest.ini_options]
+timeout = 300
+
+[tool.black]
+line-length = 99
+target-version = ['py312']
+include = "ormrm/"
+
+[tool.mypy]
+disable_error_code = "import"
+exclude = ["conftest\\.py", "__tests__"]
+
+[tool.setuptools]
+include-package-data = true
