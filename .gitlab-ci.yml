@@ -1,0 +1,26 @@
+image: buildtools.docker.pkg.csfcloud.com/arm64/generic/python:3.12
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+
+stages:
+  - unit-test
+  - build
+  - publish
+
+before_script:
+  - python3 -m venv venv
+  - source venv/bin/activate
+  - python3 -m pip install pip-tools
+  - ci/tools/install-dependencies.sh --all
+
+cache:
+  key: ${CI_COMMIT_REF_NAME}-${CI_JOB_NAME}
+  paths:
+    - venv
+    - requirements.txt
+
+include:
+  - local: "/ci/gitlab/unit_test.yaml"
+  - local: "/ci/gitlab/build.yaml"
+  - local: "/ci/gitlab/publish.yaml"

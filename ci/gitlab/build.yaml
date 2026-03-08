@@ -1,0 +1,12 @@
+build:
+  stage: build
+  needs:
+    - unit-test
+  script:
+    - ./ci/tools/build-package.sh
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+  retry: 1
+  interruptible: true

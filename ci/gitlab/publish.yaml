@@ -1,0 +1,26 @@
+publish-internal:
+  stage: publish
+  needs:
+    - build
+  only:
+    refs:
+      - tags
+      - master
+  script:
+    - ./ci/tools/publish-package.sh internal
+  retry: 1
+  interruptible: true
+
+publish-pypi:
+  stage: publish
+  needs:
+    - build
+  when: manual
+  only:
+    refs:
+      - tags
+      - master
+  script:
+    - ./ci/tools/publish-package.sh pypi
+  retry: 1
+  interruptible: true
