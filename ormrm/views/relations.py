@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import builtins
 import inspect
+import warnings
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Awaitable, cast
 
 from ..datasource import DataPage
@@ -11,12 +12,38 @@ from ..filters import InListFilter
 from ..models import BaseModel
 from ..query import BoundFilter, ModelQuery
 from ..schema import FieldDefinition, RelationDefinition
-
 from .support import ViewSupport
 from .types import PathCache, PathIndex, RelationStep, ViewSortable
 
 
 class ViewRelationMixin(ViewSupport):
+    def _make_root_sort_key(
+        self,
+        sort_source: FieldDefinition,
+    ) -> Callable[[BaseModel], Any]:
+        field_name = self._field_name(sort_source)
+
+        def key(record: BaseModel) -> Any:
+            return self._coerce_sort_value(getattr(record, field_name))
+
+        return key
+
+    def _make_related_sort_key(
+        self,
+        sort_source: FieldDefinition,
+        root_records: builtins.list[BaseModel],
+        path_cache: PathCache,
+        model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
+    ) -> Callable[[BaseModel], Any]:
+        def key(record: BaseModel) -> Any:
+            return self._coerce_sort_value(
+                self._resolve_source_value(
+                    record, sort_source, root_records, path_cache, model_cache
+                )
+            )
+
+        return key
+
     def _sort_root_records(
         self,
         root_records: builtins.list[BaseModel],
@@ -47,22 +74,14 @@ class ViewRelationMixin(ViewSupport):
             source_model = self._model_for_field(sort_source)
             if source_model is self.root_model:
                 root_records.sort(
-                    key=lambda record: self._coerce_sort_value(
-                        getattr(record, self._field_name(sort_source))
-                    ),
+                    key=self._make_root_sort_key(sort_source),
                     reverse=descending,
                 )
                 continue
 
             root_records.sort(
-                key=lambda record: self._coerce_sort_value(
-                    self._resolve_source_value(
-                        record,
-                        sort_source,
-                        root_records,
-                        path_cache,
-                        model_cache,
-                    )
+                key=self._make_related_sort_key(
+                    sort_source, root_records, path_cache, model_cache
                 ),
                 reverse=descending,
             )
@@ -98,9 +117,7 @@ class ViewRelationMixin(ViewSupport):
             source_model = self._model_for_field(sort_source)
             if source_model is self.root_model:
                 root_records.sort(
-                    key=lambda record: self._coerce_sort_value(
-                        getattr(record, self._field_name(sort_source))
-                    ),
+                    key=self._make_root_sort_key(sort_source),
                     reverse=descending,
                 )
                 continue
@@ -394,17 +411,29 @@ class ViewRelationMixin(ViewSupport):
 
         raise ValueError(f"No relation path from {start.__name__} to {target.__name__}")
 
+    def _build_reverse_relation_index(
+        self,
+    ) -> dict[type[BaseModel], builtins.list[tuple[type[BaseModel], str, RelationDefinition]]]:
+        index: dict[
+            type[BaseModel],
+            builtins.list[tuple[type[BaseModel], str, RelationDefinition]],
+        ] = {}
+        for candidate_model in BaseModel._registry.values():
+            for relation_name, relation in candidate_model.__relations__.items():
+                target = relation.resolve_target()
+                index.setdefault(target, []).append((candidate_model, relation_name, relation))
+        return index
+
     def _relation_steps_from(self, model: type[BaseModel]) -> builtins.list[RelationStep]:
         steps: builtins.list[RelationStep] = []
         for relation_name, relation in model.__relations__.items():
             steps.append(self._build_step(model, relation_name, relation, forward=True))
 
-        for candidate_model in BaseModel._registry.values():
-            for relation_name, relation in candidate_model.__relations__.items():
-                if relation.resolve_target() is model:
-                    steps.append(
-                        self._build_step(candidate_model, relation_name, relation, forward=False)
-                    )
+        if not hasattr(self, "_reverse_relation_index"):
+            self._reverse_relation_index = self._build_reverse_relation_index()
+
+        for source_model, relation_name, relation in self._reverse_relation_index.get(model, ()):
+            steps.append(self._build_step(source_model, relation_name, relation, forward=False))
         return steps
 
     def _build_step(
@@ -481,6 +510,11 @@ class ViewRelationMixin(ViewSupport):
                     records_or_awaitable,
                 )
             except NotImplementedError:
+                warnings.warn(
+                    f"{model.__name__}.list_async is not implemented, "
+                    f"falling back to synchronous list()",
+                    stacklevel=2,
+                )
                 return self._fetch_data_page(
                     model,
                     query,

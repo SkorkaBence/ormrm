@@ -21,6 +21,11 @@ class FieldDefinition:
     name: str | None = field(default=None, init=False)
 
     def bind(self, owner: type["BaseModel"], name: str) -> None:
+        if self.owner is not None and self.owner is not owner:
+            raise ValueError(
+                f"FieldDefinition '{self.name}' is already bound to "
+                f"{self.owner.__name__}, cannot rebind to {owner.__name__}"
+            )
         self.owner = owner
         self.name = name
 
@@ -44,23 +49,32 @@ class RelationDefinition:
     foreign_key: str
     owner: type["BaseModel"] | None = field(default=None, init=False, repr=False)
     name: str | None = field(default=None, init=False)
+    _resolved_target: type["BaseModel"] | None = field(default=None, init=False, repr=False)
 
     def bind(self, owner: type["BaseModel"], name: str) -> None:
+        if self.owner is not None and self.owner is not owner:
+            raise ValueError(
+                f"RelationDefinition '{self.name}' is already bound to "
+                f"{self.owner.__name__}, cannot rebind to {owner.__name__}"
+            )
         self.owner = owner
         self.name = name
 
     def resolve_target(self) -> type["BaseModel"]:
+        if self._resolved_target is not None:
+            return self._resolved_target
         if isinstance(self.to, type):
+            self._resolved_target = self.to
             return self.to
         if callable(self.to) and not isinstance(self.to, str):
             target = self.to()
-            self.to = target
+            self._resolved_target = target
             return target
         if isinstance(self.to, str):
             from ormrm.models import BaseModel
 
             target = BaseModel.get_registered_model(self.to)
-            self.to = target
+            self._resolved_target = target
             return target
         return self.to
 

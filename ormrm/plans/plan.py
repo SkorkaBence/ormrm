@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from ..models import BaseModel
 from ..query import BoundFilter, ModelQuery
@@ -101,7 +101,7 @@ class ViewExecutionPlan:
     root_filters: tuple[BoundFilter, ...]
     sort_sources: tuple[FieldDefinition, ...]
     descending_flags: tuple[bool, ...]
-    execution_mode: str
+    execution_mode: Literal["root_page", "grouped_root_page", "collect_root"]
     can_page_root: bool
     root_sort_by: tuple[str, ...]
     steps: tuple[PlanStep, ...]

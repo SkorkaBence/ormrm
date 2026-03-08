@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..query import BoundFilter, ModelQuery
 from .plan import ViewExecutionPlan, ViewRequest
@@ -39,7 +39,7 @@ class ViewPlanner:
         sort_sources = tuple(sortable.source for sortable, _ in resolved_sorts)
         descending_flags = tuple(descending for _, descending in resolved_sorts)
         can_page_root = self.view._can_page_root_sources(sort_sources)
-        execution_mode = "root_page"
+        execution_mode: Literal["root_page", "grouped_root_page", "collect_root"] = "root_page"
         if can_page_root:
             root_sort_by = self.view._serialize_root_sorts(resolved_sorts)
         elif self.view._can_grouped_root_page(resolved_sorts):

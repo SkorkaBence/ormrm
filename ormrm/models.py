@@ -37,6 +37,12 @@ class ModelMeta(type):
         cls.__relations__ = relations
 
         if name != "BaseModel":
+            existing = BaseModel._registry.get(name)
+            if existing is not None and existing is not cls:
+                raise ValueError(
+                    f"Model name '{name}' is already registered by "
+                    f"{existing.__module__}.{existing.__qualname__}"
+                )
             BaseModel._registry[name] = cls
 
         return cls

@@ -4,6 +4,7 @@ import builtins
 from dataclasses import dataclass
 from typing import Any
 
+from ..filters import BaseFilter
 from ..models import BaseModel
 from ..query import ModelQuery
 from ..schema import FieldDefinition
@@ -19,7 +20,7 @@ class ViewField:
 class ViewFilter:
     name: str
     source: FieldDefinition
-    filter_type: type
+    filter_type: type[BaseFilter]
 
 
 @dataclass(frozen=True)

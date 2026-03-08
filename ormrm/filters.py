@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -11,10 +12,10 @@ class DateTimeRange:
     end: datetime | None = None
 
 
-class BaseFilter:
+class BaseFilter(abc.ABC):
     @classmethod
-    def matches(cls, candidate: Any, value: Any) -> bool:
-        raise NotImplementedError
+    @abc.abstractmethod
+    def matches(cls, candidate: Any, value: Any) -> bool: ...
 
 
 class EqualsFilter(BaseFilter):

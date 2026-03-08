@@ -28,7 +28,6 @@ test = [
     "pytest-mypy",
     "pytest-timeout",
     "pytest",
-    "qrcode",
     "types-mock",
 ]
 
