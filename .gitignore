@@ -4,3 +4,6 @@ venv
 __pycache__
 requirements.txt
 dist
+.coverage
+coverage.xml
+junit.xml

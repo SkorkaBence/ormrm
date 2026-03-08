@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import builtins
 from collections.abc import Mapping, Sequence
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
-from ormrm.datasource import DataPage, DatasourceMetadata
-from ormrm.query import ModelQuery
-from ormrm.schema import FieldDefinition, RelationDefinition
+from .datasource import DataPage, DatasourceMetadata
+from .query import ModelQuery
+from .schema import FieldDefinition, RelationDefinition
 
 
 class ModelMeta(type):
@@ -15,7 +16,7 @@ class ModelMeta(type):
         bases: tuple[type, ...],
         namespace: dict[str, Any],
     ) -> type:
-        cls = super().__new__(mcls, name, bases, namespace)
+        cls = cast(type["BaseModel"], super().__new__(mcls, name, bases, namespace))
 
         fields: dict[str, FieldDefinition] = {}
         relations: dict[str, RelationDefinition] = {}
@@ -85,11 +86,13 @@ class BaseModel(metaclass=ModelMeta):
             return record
         if isinstance(record, Mapping):
             return cls(**record)
-        raise TypeError(f"{cls.__name__}.list() returned an unsupported record type: {type(record)!r}")
+        raise TypeError(
+            f"{cls.__name__}.list() returned an unsupported record type: {type(record)!r}"
+        )
 
     @classmethod
-    def normalize_records(cls, records: Sequence[Any]) -> list["BaseModel"]:
-        pk_name = cls.primary_key_field().name
+    def normalize_records(cls, records: Sequence[Any]) -> builtins.list["BaseModel"]:
+        pk_name = cls.primary_key_field().bound_name
         normalized = [cls.ensure_instance(record) for record in records]
         deduplicated: dict[Any, BaseModel] = {}
         for record in normalized:
@@ -102,7 +105,7 @@ class BaseModel(metaclass=ModelMeta):
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | tuple[str, ...] | list[str] | None = None,
+        sort_by: str | tuple[str, ...] | builtins.list[str] | None = None,
     ) -> DataPage[Any] | Sequence[Any]:
         raise NotImplementedError
 
@@ -112,7 +115,7 @@ class BaseModel(metaclass=ModelMeta):
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | tuple[str, ...] | list[str] | None = None,
+        sort_by: str | tuple[str, ...] | builtins.list[str] | None = None,
     ) -> DataPage[Any] | Sequence[Any]:
         raise NotImplementedError
 

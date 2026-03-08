@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import builtins
 import inspect
 import math
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Awaitable, cast
 
-from ormrm.datasource import DataPage
-from ormrm.filters import EqualsFilter, InListFilter
-from ormrm.models import BaseModel
-from ormrm.plans import ViewExecutionPlan, ViewPlanner
-from ormrm.query import BoundFilter, ModelQuery
-from ormrm.schema import FieldDefinition, RelationDefinition
+from .datasource import DataPage
+from .filters import EqualsFilter, InListFilter
+from .models import BaseModel
+from .plans import ViewExecutionPlan, ViewPlanner
+from .query import BoundFilter, ModelQuery
+from .schema import FieldDefinition, RelationDefinition
 
 
 @dataclass(frozen=True)
@@ -42,7 +44,7 @@ class PaginationConfig:
 
 @dataclass(frozen=True)
 class Page:
-    items: list[dict[str, Any]]
+    items: builtins.list[dict[str, Any]]
     page: int
     page_size: int
     total_items: int
@@ -65,13 +67,19 @@ class PreparedRootQuery:
     impossible: bool = False
 
 
+SortByInput = str | builtins.list[str] | tuple[str, ...] | None
+PathIndex = dict[Any, builtins.list[BaseModel]]
+PathCache = dict[tuple[RelationStep, ...], builtins.list[PathIndex]]
+
+
 class View:
+
     def __init__(
         self,
         *,
-        fields: list[ViewField],
-        filters: list[ViewFilter] | None = None,
-        sortables: list[ViewSortable] | None = None,
+        fields: builtins.list[ViewField],
+        filters: builtins.list[ViewFilter] | None = None,
+        sortables: builtins.list[ViewSortable] | None = None,
         pagination: PaginationConfig | None = None,
     ) -> None:
         if not fields:
@@ -90,7 +98,7 @@ class View:
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | list[str] | tuple[str, ...] | None = None,
+        sort_by: SortByInput = None,
         filters: dict[str, Any] | None = None,
     ) -> Page:
         plan = self.inspect(page=page, page_size=page_size, sort_by=sort_by, filters=filters)
@@ -101,7 +109,7 @@ class View:
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | list[str] | tuple[str, ...] | None = None,
+        sort_by: SortByInput = None,
         filters: dict[str, Any] | None = None,
     ) -> Page:
         plan = self.inspect(page=page, page_size=page_size, sort_by=sort_by, filters=filters)
@@ -112,10 +120,15 @@ class View:
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | list[str] | tuple[str, ...] | None = None,
+        sort_by: SortByInput = None,
         filters: dict[str, Any] | None = None,
     ) -> ViewExecutionPlan:
-        return ViewPlanner(self).build(page=page, page_size=page_size, sort_by=sort_by, filters=filters)
+        return ViewPlanner(self).build(
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            filters=filters,
+        )
 
     build_plan = inspect
 
@@ -125,7 +138,7 @@ class View:
             return self._empty_page(plan.request.page, plan.request.page_size)
 
         model_cache = prepared.model_cache
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]] = {}
+        path_cache: PathCache = {}
 
         if plan.execution_mode == "root_page":
             root_page = self._fetch_data_page(
@@ -149,7 +162,11 @@ class View:
                 }
                 for record in root_page.items
             ]
-            total_pages = math.ceil(root_page.total_items / plan.request.page_size) if root_page.total_items else 0
+            total_pages = (
+                math.ceil(root_page.total_items / plan.request.page_size)
+                if root_page.total_items
+                else 0
+            )
             return Page(
                 items=items,
                 page=plan.request.page,
@@ -206,7 +223,7 @@ class View:
             return self._empty_page(plan.request.page, plan.request.page_size)
 
         model_cache = prepared.model_cache
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]] = {}
+        path_cache: PathCache = {}
 
         if plan.execution_mode == "root_page":
             root_page = await self._fetch_data_page_async(
@@ -230,7 +247,11 @@ class View:
                     for field in self.fields
                 }
                 items.append(item)
-            total_pages = math.ceil(root_page.total_items / plan.request.page_size) if root_page.total_items else 0
+            total_pages = (
+                math.ceil(root_page.total_items / plan.request.page_size)
+                if root_page.total_items
+                else 0
+            )
             return Page(
                 items=items,
                 page=plan.request.page,
@@ -285,12 +306,14 @@ class View:
         group_source = plan.sort_sources[0]
         group_model = self._model_for_field(group_source)
         group_query = ModelQuery.from_bound_filters(plan.grouped_filter_map().get(group_model, ()))
-        group_sort = ("-" if plan.descending_flags[0] else "") + group_source.name
-        group_page_size = group_model.datasource.max_page_size or group_model.datasource.default_page_size
+        group_sort = ("-" if plan.descending_flags[0] else "") + self._field_name(group_source)
+        group_page_size = (
+            group_model.datasource.max_page_size or group_model.datasource.default_page_size
+        )
         root_sort = self._sort_by_argument(plan.root_sort_by)
         model_cache = prepared.model_cache
 
-        selected_records: list[BaseModel] = []
+        selected_records: builtins.list[BaseModel] = []
         total_items = 0
         offset = (plan.request.page - 1) * plan.request.page_size
         needed = plan.request.page_size
@@ -299,7 +322,7 @@ class View:
         if len(first_path) != 1:
             raise ValueError("Grouped root execution requires a direct relation path")
         join_step = first_path[0]
-        group_pk_name = group_model.primary_key_field().name
+        group_pk_name = group_model.primary_key_field().bound_name
 
         group_page_number = 1
         total_group_pages = 1
@@ -333,7 +356,7 @@ class View:
 
             group_page_number += 1
 
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]] = {}
+        path_cache: PathCache = {}
         items = [
             {
                 field.name: self._resolve_source_value(
@@ -356,16 +379,20 @@ class View:
             total_pages=total_pages,
         )
 
-    async def _execute_grouped_plan_async(self, plan: ViewExecutionPlan, prepared: PreparedRootQuery) -> Page:
+    async def _execute_grouped_plan_async(
+        self, plan: ViewExecutionPlan, prepared: PreparedRootQuery
+    ) -> Page:
         group_source = plan.sort_sources[0]
         group_model = self._model_for_field(group_source)
         group_query = ModelQuery.from_bound_filters(plan.grouped_filter_map().get(group_model, ()))
-        group_sort = ("-" if plan.descending_flags[0] else "") + group_source.name
-        group_page_size = group_model.datasource.max_page_size or group_model.datasource.default_page_size
+        group_sort = ("-" if plan.descending_flags[0] else "") + self._field_name(group_source)
+        group_page_size = (
+            group_model.datasource.max_page_size or group_model.datasource.default_page_size
+        )
         root_sort = self._sort_by_argument(plan.root_sort_by)
         model_cache = prepared.model_cache
 
-        selected_records: list[BaseModel] = []
+        selected_records: builtins.list[BaseModel] = []
         total_items = 0
         offset = (plan.request.page - 1) * plan.request.page_size
         needed = plan.request.page_size
@@ -374,7 +401,7 @@ class View:
         if len(first_path) != 1:
             raise ValueError("Grouped root execution requires a direct relation path")
         join_step = first_path[0]
-        group_pk_name = group_model.primary_key_field().name
+        group_pk_name = group_model.primary_key_field().bound_name
 
         group_page_number = 1
         total_group_pages = 1
@@ -408,7 +435,7 @@ class View:
 
             group_page_number += 1
 
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]] = {}
+        path_cache: PathCache = {}
         items = []
         for record in selected_records:
             item = {
@@ -443,7 +470,7 @@ class View:
         needed: int,
         consumed_before: int,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> tuple[list[BaseModel], int]:
+    ) -> tuple[builtins.list[BaseModel], int]:
         author_query = self._append_bound_filters(
             root_query,
             (
@@ -495,7 +522,7 @@ class View:
         needed: int,
         consumed_before: int,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> tuple[list[BaseModel], int]:
+    ) -> tuple[builtins.list[BaseModel], int]:
         author_query = self._append_bound_filters(
             root_query,
             (
@@ -551,7 +578,7 @@ class View:
         take_count: int,
         seed_page: DataPage[BaseModel],
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[BaseModel]:
+    ) -> builtins.list[BaseModel]:
         if take_count <= 0:
             return []
         page_size = max(seed_page.page_size, 1)
@@ -568,7 +595,7 @@ class View:
             )
             self._cache_records(model_cache, self.root_model, current_page.items)
 
-        items: list[BaseModel] = []
+        items: builtins.list[BaseModel] = []
         while len(items) < take_count and current_page.items:
             items.extend(current_page.items[offset_in_page:])
             if len(items) >= take_count:
@@ -594,7 +621,7 @@ class View:
         take_count: int,
         seed_page: DataPage[BaseModel],
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[BaseModel]:
+    ) -> builtins.list[BaseModel]:
         if take_count <= 0:
             return []
         page_size = max(seed_page.page_size, 1)
@@ -611,7 +638,7 @@ class View:
             )
             self._cache_records(model_cache, self.root_model, current_page.items)
 
-        items: list[BaseModel] = []
+        items: builtins.list[BaseModel] = []
         while len(items) < take_count and current_page.items:
             items.extend(current_page.items[offset_in_page:])
             if len(items) >= take_count:
@@ -646,6 +673,9 @@ class View:
             raise ValueError("View source field is not bound to a model")
         return field_definition.owner
 
+    def _field_name(self, field_definition: FieldDefinition) -> str:
+        return field_definition.bound_name
+
     def _normalize_pagination(self, page: int, page_size: int | None) -> tuple[int, int]:
         if page < 1:
             raise ValueError("page must be at least 1")
@@ -658,7 +688,7 @@ class View:
 
     def _normalize_sort_input(
         self,
-        sort_by: str | list[str] | tuple[str, ...] | None,
+        sort_by: SortByInput,
     ) -> tuple[str, ...]:
         if sort_by is None:
             defaults = [
@@ -671,7 +701,7 @@ class View:
             return (sort_by,)
         return tuple(sort_by)
 
-    def _resolve_sort(self, sort_by: str | list[str] | tuple[str, ...] | None) -> tuple[ViewSortable | None, bool]:
+    def _resolve_sort(self, sort_by: SortByInput) -> tuple[ViewSortable | None, bool]:
         resolved = self._resolve_sorts(sort_by)
         if not resolved:
             return None, False
@@ -679,10 +709,10 @@ class View:
 
     def _resolve_sorts(
         self,
-        sort_by: str | list[str] | tuple[str, ...] | None,
+        sort_by: SortByInput,
     ) -> tuple[tuple[ViewSortable, bool], ...]:
         requested = self._normalize_sort_input(sort_by)
-        resolved: list[tuple[ViewSortable, bool]] = []
+        resolved: builtins.list[tuple[ViewSortable, bool]] = []
         for requested_sort in requested:
             descending = requested_sort.startswith("-")
             sortable_name = requested_sort[1:] if descending else requested_sort
@@ -695,8 +725,8 @@ class View:
     def _group_requested_filters(
         self,
         requested_filters: dict[str, Any],
-    ) -> dict[type[BaseModel], list[BoundFilter]]:
-        grouped: dict[type[BaseModel], list[BoundFilter]] = {}
+    ) -> dict[type[BaseModel], builtins.list[BoundFilter]]:
+        grouped: dict[type[BaseModel], builtins.list[BoundFilter]] = {}
         for filter_name, filter_value in requested_filters.items():
             try:
                 view_filter = self._filters_by_name[filter_name]
@@ -714,7 +744,7 @@ class View:
 
     def _prepare_root_query(
         self,
-        grouped_filters: dict[type[BaseModel], list[BoundFilter]],
+        grouped_filters: dict[type[BaseModel], builtins.list[BoundFilter]],
     ) -> PreparedRootQuery:
         root_filters = list(grouped_filters.get(self.root_model, ()))
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]] = {}
@@ -728,14 +758,18 @@ class View:
                 model_cache=model_cache,
             )
             if not target_page.items:
-                return PreparedRootQuery(query=ModelQuery(), model_cache=model_cache, impossible=True)
+                return PreparedRootQuery(
+                    query=ModelQuery(), model_cache=model_cache, impossible=True
+                )
             propagated = self._propagate_filter_to_root(
                 self._find_path(self.root_model, model),
                 target_page.items,
                 model_cache,
             )
             if propagated is None:
-                return PreparedRootQuery(query=ModelQuery(), model_cache=model_cache, impossible=True)
+                return PreparedRootQuery(
+                    query=ModelQuery(), model_cache=model_cache, impossible=True
+                )
             root_filters.append(propagated)
 
         return PreparedRootQuery(
@@ -745,7 +779,7 @@ class View:
 
     async def _prepare_root_query_async(
         self,
-        grouped_filters: dict[type[BaseModel], list[BoundFilter]],
+        grouped_filters: dict[type[BaseModel], builtins.list[BoundFilter]],
     ) -> PreparedRootQuery:
         root_filters = list(grouped_filters.get(self.root_model, ()))
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]] = {}
@@ -759,14 +793,18 @@ class View:
                 model_cache=model_cache,
             )
             if not target_page.items:
-                return PreparedRootQuery(query=ModelQuery(), model_cache=model_cache, impossible=True)
+                return PreparedRootQuery(
+                    query=ModelQuery(), model_cache=model_cache, impossible=True
+                )
             propagated = await self._propagate_filter_to_root_async(
                 self._find_path(self.root_model, model),
                 target_page.items,
                 model_cache,
             )
             if propagated is None:
-                return PreparedRootQuery(query=ModelQuery(), model_cache=model_cache, impossible=True)
+                return PreparedRootQuery(
+                    query=ModelQuery(), model_cache=model_cache, impossible=True
+                )
             root_filters.append(propagated)
 
         return PreparedRootQuery(
@@ -777,7 +815,7 @@ class View:
     def _propagate_filter_to_root(
         self,
         path: tuple[RelationStep, ...],
-        matching_target_records: list[BaseModel],
+        matching_target_records: builtins.list[BaseModel],
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
     ) -> BoundFilter | None:
         current_records = matching_target_records
@@ -809,7 +847,7 @@ class View:
     async def _propagate_filter_to_root_async(
         self,
         path: tuple[RelationStep, ...],
-        matching_target_records: list[BaseModel],
+        matching_target_records: builtins.list[BaseModel],
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
     ) -> BoundFilter | None:
         current_records = matching_target_records
@@ -851,7 +889,9 @@ class View:
             return False
         if not sort_sources:
             return True
-        return all(self._model_for_field(sort_source) is self.root_model for sort_source in sort_sources)
+        return all(
+            self._model_for_field(sort_source) is self.root_model for sort_source in sort_sources
+        )
 
     def _can_grouped_root_page(
         self,
@@ -862,27 +902,34 @@ class View:
         first_source = resolved_sorts[0][0].source
         if self._model_for_field(first_source) is self.root_model:
             return False
-        if any(self._model_for_field(sortable.source) is not self.root_model for sortable, _ in resolved_sorts[1:]):
+        if any(
+            self._model_for_field(sortable.source) is not self.root_model
+            for sortable, _ in resolved_sorts[1:]
+        ):
             return False
         path = self._find_path(self.root_model, self._model_for_field(first_source))
         return len(path) == 1 and path[0].current_model is self.root_model
 
     def _root_sort(self, sortable: ViewSortable | None, descending: bool) -> str | None:
-        return self._root_sort_from_source(sortable.source if sortable is not None else None, descending)
+        return self._root_sort_from_source(
+            sortable.source if sortable is not None else None, descending
+        )
 
-    def _root_sort_from_source(self, sort_source: FieldDefinition | None, descending: bool) -> str | None:
+    def _root_sort_from_source(
+        self, sort_source: FieldDefinition | None, descending: bool
+    ) -> str | None:
         if sort_source is None:
             return None
         if self._model_for_field(sort_source) is not self.root_model:
             return None
         prefix = "-" if descending else ""
-        return f"{prefix}{sort_source.name}"
+        return f"{prefix}{self._field_name(sort_source)}"
 
     def _serialize_root_sorts(
         self,
         resolved_sorts: tuple[tuple[ViewSortable, bool], ...],
     ) -> tuple[str, ...]:
-        serialized: list[str] = []
+        serialized: builtins.list[str] = []
         for sortable, descending in resolved_sorts:
             root_sort = self._root_sort_from_source(sortable.source, descending)
             if root_sort is None:
@@ -892,10 +939,12 @@ class View:
 
     def _serialize_root_sorts_for_step(
         self,
-        resolved_sorts: list[tuple[ViewSortable, bool]] | tuple[tuple[ViewSortable, bool], ...],
+        resolved_sorts: (
+            builtins.list[tuple[ViewSortable, bool]] | tuple[tuple[ViewSortable, bool], ...]
+        ),
     ) -> str | None:
         values = [
-            ("-" if descending else "") + sortable.source.name
+            ("-" if descending else "") + self._field_name(sortable.source)
             for sortable, descending in resolved_sorts
         ]
         if not values:
@@ -925,12 +974,12 @@ class View:
 
     def _sort_root_records(
         self,
-        root_records: list[BaseModel],
+        root_records: builtins.list[BaseModel],
         sortable: ViewSortable | None,
         descending: bool,
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]],
+        path_cache: PathCache,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[BaseModel]:
+    ) -> builtins.list[BaseModel]:
         return self._sort_root_records_by_source(
             root_records,
             (sortable.source,) if sortable is not None else (),
@@ -941,17 +990,21 @@ class View:
 
     def _sort_root_records_by_source(
         self,
-        root_records: list[BaseModel],
+        root_records: builtins.list[BaseModel],
         sort_sources: tuple[FieldDefinition, ...],
         descending_flags: tuple[bool, ...],
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]],
+        path_cache: PathCache,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[BaseModel]:
-        for sort_source, descending in reversed(tuple(zip(sort_sources, descending_flags, strict=True))):
+    ) -> builtins.list[BaseModel]:
+        for sort_source, descending in reversed(
+            tuple(zip(sort_sources, descending_flags, strict=True))
+        ):
             source_model = self._model_for_field(sort_source)
             if source_model is self.root_model:
                 root_records.sort(
-                    key=lambda record: self._coerce_sort_value(getattr(record, sort_source.name)),
+                    key=lambda record: self._coerce_sort_value(
+                        getattr(record, self._field_name(sort_source))
+                    ),
                     reverse=descending,
                 )
                 continue
@@ -972,12 +1025,12 @@ class View:
 
     async def _sort_root_records_async(
         self,
-        root_records: list[BaseModel],
+        root_records: builtins.list[BaseModel],
         sortable: ViewSortable | None,
         descending: bool,
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]],
+        path_cache: PathCache,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[BaseModel]:
+    ) -> builtins.list[BaseModel]:
         return await self._sort_root_records_by_source_async(
             root_records,
             (sortable.source,) if sortable is not None else (),
@@ -988,17 +1041,21 @@ class View:
 
     async def _sort_root_records_by_source_async(
         self,
-        root_records: list[BaseModel],
+        root_records: builtins.list[BaseModel],
         sort_sources: tuple[FieldDefinition, ...],
         descending_flags: tuple[bool, ...],
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]],
+        path_cache: PathCache,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[BaseModel]:
-        for sort_source, descending in reversed(tuple(zip(sort_sources, descending_flags, strict=True))):
+    ) -> builtins.list[BaseModel]:
+        for sort_source, descending in reversed(
+            tuple(zip(sort_sources, descending_flags, strict=True))
+        ):
             source_model = self._model_for_field(sort_source)
             if source_model is self.root_model:
                 root_records.sort(
-                    key=lambda record: self._coerce_sort_value(getattr(record, sort_source.name)),
+                    key=lambda record: self._coerce_sort_value(
+                        getattr(record, self._field_name(sort_source))
+                    ),
                     reverse=descending,
                 )
                 continue
@@ -1013,33 +1070,36 @@ class View:
                     model_cache,
                 )
                 sort_pairs.append((record, self._coerce_sort_value(sort_value)))
-            root_records = [record for record, _ in sorted(sort_pairs, key=lambda pair: pair[1], reverse=descending)]
+            root_records = [
+                record
+                for record, _ in sorted(sort_pairs, key=lambda pair: pair[1], reverse=descending)
+            ]
         return root_records
 
     def _resolve_source_value(
         self,
         root_record: BaseModel,
         source: FieldDefinition,
-        root_records: list[BaseModel],
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]],
+        root_records: builtins.list[BaseModel],
+        path_cache: PathCache,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
     ) -> Any:
         source_model = self._model_for_field(source)
         if source_model is self.root_model:
-            return getattr(root_record, source.name)
+            return getattr(root_record, self._field_name(source))
 
         path = self._find_path(self.root_model, source_model)
         indexes = self._load_path_indexes(path, root_records, path_cache, model_cache)
         current_records = [root_record]
         for step, index in zip(path, indexes, strict=True):
-            next_records: list[BaseModel] = []
+            next_records: builtins.list[BaseModel] = []
             for record in current_records:
                 next_records.extend(index.get(getattr(record, step.current_field_name), ()))
             current_records = self._deduplicate_records(step.next_model, next_records)
             if not current_records:
                 return None
 
-        values = [getattr(record, source.name) for record in current_records]
+        values = [getattr(record, self._field_name(source)) for record in current_records]
         if len(values) == 1:
             return values[0]
         return values
@@ -1048,26 +1108,26 @@ class View:
         self,
         root_record: BaseModel,
         source: FieldDefinition,
-        root_records: list[BaseModel],
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]],
+        root_records: builtins.list[BaseModel],
+        path_cache: PathCache,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
     ) -> Any:
         source_model = self._model_for_field(source)
         if source_model is self.root_model:
-            return getattr(root_record, source.name)
+            return getattr(root_record, self._field_name(source))
 
         path = self._find_path(self.root_model, source_model)
         indexes = await self._load_path_indexes_async(path, root_records, path_cache, model_cache)
         current_records = [root_record]
         for step, index in zip(path, indexes, strict=True):
-            next_records: list[BaseModel] = []
+            next_records: builtins.list[BaseModel] = []
             for record in current_records:
                 next_records.extend(index.get(getattr(record, step.current_field_name), ()))
             current_records = self._deduplicate_records(step.next_model, next_records)
             if not current_records:
                 return None
 
-        values = [getattr(record, source.name) for record in current_records]
+        values = [getattr(record, self._field_name(source)) for record in current_records]
         if len(values) == 1:
             return values[0]
         return values
@@ -1080,15 +1140,15 @@ class View:
     def _load_path_indexes(
         self,
         path: tuple[RelationStep, ...],
-        root_records: list[BaseModel],
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]],
+        root_records: builtins.list[BaseModel],
+        path_cache: PathCache,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[dict[Any, list[BaseModel]]]:
+    ) -> builtins.list[PathIndex]:
         cached = path_cache.get(path)
         if cached is not None:
             return cached
 
-        indexes: list[dict[Any, list[BaseModel]]] = []
+        indexes: builtins.list[PathIndex] = []
         current_records = root_records
         for step in path:
             join_values = {getattr(record, step.current_field_name) for record in current_records}
@@ -1107,7 +1167,7 @@ class View:
                     ),
                     model_cache=model_cache,
                 ).items
-            index: dict[Any, list[BaseModel]] = {}
+            index: PathIndex = {}
             for record in next_records:
                 index.setdefault(getattr(record, step.next_field_name), []).append(record)
             indexes.append(index)
@@ -1119,15 +1179,15 @@ class View:
     async def _load_path_indexes_async(
         self,
         path: tuple[RelationStep, ...],
-        root_records: list[BaseModel],
-        path_cache: dict[tuple[RelationStep, ...], list[dict[Any, list[BaseModel]]]],
+        root_records: builtins.list[BaseModel],
+        path_cache: PathCache,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[dict[Any, list[BaseModel]]]:
+    ) -> builtins.list[PathIndex]:
         cached = path_cache.get(path)
         if cached is not None:
             return cached
 
-        indexes: list[dict[Any, list[BaseModel]]] = []
+        indexes: builtins.list[PathIndex] = []
         current_records = root_records
         for step in path:
             join_values = {getattr(record, step.current_field_name) for record in current_records}
@@ -1148,7 +1208,7 @@ class View:
                         model_cache=model_cache,
                     )
                 ).items
-            index: dict[Any, list[BaseModel]] = {}
+            index: PathIndex = {}
             for record in next_records:
                 index.setdefault(getattr(record, step.next_field_name), []).append(record)
             indexes.append(index)
@@ -1162,10 +1222,10 @@ class View:
         step: RelationStep,
         join_values: set[Any],
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
-    ) -> list[BaseModel] | None:
+    ) -> builtins.list[BaseModel] | None:
         if not join_values:
             return []
-        pk_name = step.next_model.primary_key_field().name
+        pk_name = step.next_model.primary_key_field().bound_name
         if step.next_field_name != pk_name:
             return None
         cached_records = model_cache.get(step.next_model, {})
@@ -1269,9 +1329,9 @@ class View:
         self,
         model_cache: dict[type[BaseModel], dict[Any, BaseModel]],
         model: type[BaseModel],
-        records: list[BaseModel],
+        records: builtins.list[BaseModel],
     ) -> None:
-        pk_name = model.primary_key_field().name
+        pk_name = model.primary_key_field().bound_name
         cache = model_cache.setdefault(model, {})
         for record in records:
             cache[getattr(record, pk_name)] = record
@@ -1300,15 +1360,17 @@ class View:
 
         raise ValueError(f"No relation path from {start.__name__} to {target.__name__}")
 
-    def _relation_steps_from(self, model: type[BaseModel]) -> list[RelationStep]:
-        steps: list[RelationStep] = []
+    def _relation_steps_from(self, model: type[BaseModel]) -> builtins.list[RelationStep]:
+        steps: builtins.list[RelationStep] = []
         for relation_name, relation in model.__relations__.items():
             steps.append(self._build_step(model, relation_name, relation, forward=True))
 
         for candidate_model in BaseModel._registry.values():
             for relation_name, relation in candidate_model.__relations__.items():
                 if relation.resolve_target() is model:
-                    steps.append(self._build_step(candidate_model, relation_name, relation, forward=False))
+                    steps.append(
+                        self._build_step(candidate_model, relation_name, relation, forward=False)
+                    )
 
         return steps
 
@@ -1321,8 +1383,8 @@ class View:
         forward: bool,
     ) -> RelationStep:
         target_model = relation.resolve_target()
-        source_pk_name = source_model.primary_key_field().name
-        target_pk_name = target_model.primary_key_field().name
+        source_pk_name = source_model.primary_key_field().bound_name
+        target_pk_name = target_model.primary_key_field().bound_name
 
         if relation.relation_type in {"many-to-one", "one-to-one"}:
             current_field_name = relation.foreign_key
@@ -1359,7 +1421,9 @@ class View:
         page_size: int | None,
         sort_by: str | tuple[str, ...] | None,
     ) -> DataPage[BaseModel]:
-        return model.normalize_page(model.list(query, page=page, page_size=page_size, sort_by=sort_by))
+        return model.normalize_page(
+            model.list(query, page=page, page_size=page_size, sort_by=sort_by)
+        )
 
     async def _fetch_data_page_async(
         self,
@@ -1370,20 +1434,33 @@ class View:
         page_size: int | None,
         sort_by: str | tuple[str, ...] | None,
     ) -> DataPage[BaseModel]:
-        records = model.list_async(query, page=page, page_size=page_size, sort_by=sort_by)
-        if inspect.isawaitable(records):
+        records_or_awaitable = model.list_async(
+            query,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+        )
+        records: DataPage[Any] | Sequence[Any]
+        if inspect.isawaitable(records_or_awaitable):
             try:
-                records = await records
+                records = await cast(
+                    Awaitable[DataPage[Any] | Sequence[Any]],
+                    records_or_awaitable,
+                )
             except NotImplementedError:
-                return self._fetch_data_page(model, query, page=page, page_size=page_size, sort_by=sort_by)
+                return self._fetch_data_page(
+                    model, query, page=page, page_size=page_size, sort_by=sort_by
+                )
+        else:
+            records = records_or_awaitable
         return model.normalize_page(records)
 
     def _deduplicate_records(
         self,
         model: type[BaseModel],
-        records: list[BaseModel],
-    ) -> list[BaseModel]:
-        pk_name = model.primary_key_field().name
+        records: builtins.list[BaseModel],
+    ) -> builtins.list[BaseModel]:
+        pk_name = model.primary_key_field().bound_name
         deduplicated: dict[Any, BaseModel] = {}
         for record in records:
             deduplicated[getattr(record, pk_name)] = record
@@ -1392,9 +1469,9 @@ class View:
 
 def create_view(
     *,
-    fields: list[ViewField],
-    filters: list[ViewFilter] | None = None,
-    sortables: list[ViewSortable] | None = None,
+    fields: builtins.list[ViewField],
+    filters: builtins.list[ViewFilter] | None = None,
+    sortables: builtins.list[ViewSortable] | None = None,
     pagination: PaginationConfig | None = None,
 ) -> View:
     return View(fields=fields, filters=filters, sortables=sortables, pagination=pagination)

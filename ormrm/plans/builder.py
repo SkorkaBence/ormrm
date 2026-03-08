@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ormrm.plans.plan import ViewExecutionPlan, ViewRequest
-from ormrm.plans.steps import (
+from ..query import BoundFilter, ModelQuery
+from .plan import ViewExecutionPlan, ViewRequest
+from .steps import (
     CollectRecordsStep,
     DeriveRootFilterStep,
     FetchRootRecordsStep,
+    PlanStep,
     ProjectViewStep,
     SortRecordsStep,
 )
-from ormrm.query import ModelQuery
 
 if TYPE_CHECKING:
     from ormrm.views import View
@@ -31,7 +32,9 @@ class ViewPlanner:
         request_filters = filters or {}
         normalized_page, normalized_page_size = self.view._normalize_pagination(page, page_size)
         grouped_filters = self.view._group_requested_filters(request_filters)
-        root_filters = tuple(grouped_filters.get(self.view.root_model, ()))
+        root_filters: tuple[BoundFilter, ...] = tuple(
+            grouped_filters.get(self.view.root_model, ())
+        )
         resolved_sorts = self.view._resolve_sorts(sort_by)
         sort_sources = tuple(sortable.source for sortable, _ in resolved_sorts)
         descending_flags = tuple(descending for _, descending in resolved_sorts)
@@ -46,7 +49,7 @@ class ViewPlanner:
             execution_mode = "collect_root"
             root_sort_by = ()
 
-        steps = []
+        steps: list[PlanStep] = []
         derived_filters: list[str] = []
         grouped_sort_model = None
         if execution_mode == "grouped_root_page":
@@ -58,7 +61,8 @@ class ViewPlanner:
                     model_name=grouped_sort_model.__name__,
                     query=ModelQuery(),
                     mode="all",
-                    page_size=grouped_sort_model.datasource.max_page_size or grouped_sort_model.datasource.default_page_size,
+                    page_size=grouped_sort_model.datasource.max_page_size
+                    or grouped_sort_model.datasource.default_page_size,
                     sort_by=self.view._serialize_root_sorts_for_step([resolved_sorts[0]]),
                     purpose="walk sorted parent groups",
                 )
@@ -99,11 +103,17 @@ class ViewPlanner:
         steps.append(
             FetchRootRecordsStep(
                 model_name=self.view.root_model.__name__,
-                mode="page" if execution_mode == "root_page" else ("grouped-page" if execution_mode == "grouped_root_page" else "all"),
+                mode=(
+                    "page"
+                    if execution_mode == "root_page"
+                    else ("grouped-page" if execution_mode == "grouped_root_page" else "all")
+                ),
                 query=ModelQuery.from_bound_filters(root_filters),
                 page=normalized_page,
                 page_size=normalized_page_size,
-                sort_by=self.view._serialize_root_sorts_for_step(resolved_sorts if execution_mode == "root_page" else resolved_sorts[1:]),
+                sort_by=self.view._serialize_root_sorts_for_step(
+                    resolved_sorts if execution_mode == "root_page" else resolved_sorts[1:]
+                ),
                 derived_filters=tuple(derived_filters),
             )
         )
@@ -111,14 +121,20 @@ class ViewPlanner:
         if execution_mode == "collect_root" and resolved_sorts:
             steps.append(
                 SortRecordsStep(
-                    source=", ".join(sortable.source.qualified_name for sortable, _ in resolved_sorts),
-                    direction=", ".join("desc" if descending else "asc" for _, descending in resolved_sorts),
+                    source=", ".join(
+                        sortable.source.qualified_name for sortable, _ in resolved_sorts
+                    ),
+                    direction=", ".join(
+                        "desc" if descending else "asc" for _, descending in resolved_sorts
+                    ),
                 )
             )
 
         steps.append(
             ProjectViewStep(
-                fields=tuple(f"{field.name} <- {field.source.qualified_name}" for field in self.view.fields)
+                fields=tuple(
+                    f"{field.name} <- {field.source.qualified_name}" for field in self.view.fields
+                )
             )
         )
 
@@ -130,7 +146,9 @@ class ViewPlanner:
                 sort_by=sort_by,
                 filters=request_filters,
             ),
-            grouped_filters=tuple((model, tuple(filters)) for model, filters in grouped_filters.items()),
+            grouped_filters=tuple(
+                (model, tuple(filters)) for model, filters in grouped_filters.items()
+            ),
             root_filters=root_filters,
             sort_sources=sort_sources,
             descending_flags=descending_flags,

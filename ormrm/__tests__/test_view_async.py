@@ -1,12 +1,7 @@
 import asyncio
 from datetime import datetime
 
-from tests.fake_services import (
-    Post,
-    User,
-    build_posts_with_authors_view,
-    reset_call_counters,
-)
+from .fake_services import Post, User, build_posts_with_authors_view, reset_call_counters
 
 
 def test_async_view_uses_async_datasource_methods() -> None:

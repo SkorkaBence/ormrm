@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from ormrm.filters import BaseFilter
-from ormrm.schema import FieldDefinition
+from .filters import BaseFilter
+from .schema import FieldDefinition
 
 
 def _format_value(value: Any) -> str:

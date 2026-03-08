@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Callable
 
-from ormrm.filters import BaseFilter
+from .filters import BaseFilter
 
 if TYPE_CHECKING:
     from ormrm.models import BaseModel
@@ -29,6 +29,12 @@ class FieldDefinition:
         if self.owner is None or self.name is None:
             raise ValueError("FieldDefinition is not bound to a model")
         return f"{self.owner.__name__}.{self.name}"
+
+    @property
+    def bound_name(self) -> str:
+        if self.name is None:
+            raise ValueError("FieldDefinition is not bound to a model")
+        return self.name
 
 
 @dataclass(eq=False)
@@ -58,6 +64,12 @@ class RelationDefinition:
             return target
         return self.to
 
+    @property
+    def bound_name(self) -> str:
+        if self.name is None:
+            raise ValueError("RelationDefinition is not bound to a model")
+        return self.name
+
 
 def define_field(
     *,
@@ -72,5 +84,10 @@ def define_field(
     )
 
 
-def create_relation(*, to: RelationTarget, relation_type: str, foreign_key: str) -> RelationDefinition:
+def create_relation(
+    *,
+    to: RelationTarget,
+    relation_type: str,
+    foreign_key: str,
+) -> RelationDefinition:
     return RelationDefinition(to=to, relation_type=relation_type, foreign_key=foreign_key)

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import builtins
 import math
 from datetime import datetime
+from typing import Any, TypeVar, cast
 
 from ormrm import (
     BaseModel,
     ContainsFilter,
     DataPage,
+    DatasourceMetadata,
     DateTimeRange,
     DateTimeRangeFilter,
-    DatasourceMetadata,
     EqualsFilter,
     InListFilter,
     PaginationConfig,
@@ -21,7 +23,6 @@ from ormrm import (
     define_field,
 )
 from ormrm.query import BoundFilter, ModelQuery
-
 
 USERS = [
     {"id": 1, "name": "Alice Adams", "email": "alice@example.com"},
@@ -60,7 +61,9 @@ POSTS = [
     },
 ]
 
-REQUEST_LOG: list[str] = []
+TModel = TypeVar("TModel", bound=BaseModel)
+
+REQUEST_LOG: builtins.list[str] = []
 
 
 def _matches_clause(candidate: object, bound_filter: BoundFilter) -> bool:
@@ -103,7 +106,7 @@ def _format_filter_value(value: object) -> str:
     return repr(value)
 
 
-def _format_sort(sort_by: str | tuple[str, ...] | list[str] | None) -> str:
+def _format_sort(sort_by: str | tuple[str, ...] | builtins.list[str] | None) -> str:
     if sort_by is None:
         return "[]"
     if isinstance(sort_by, str):
@@ -117,9 +120,9 @@ def _format_query_log(
     *,
     page: int,
     page_size: int | None,
-    sort_by: str | tuple[str, ...] | list[str] | None,
+    sort_by: str | tuple[str, ...] | builtins.list[str] | None,
 ) -> str:
-    parts: list[str] = []
+    parts: builtins.list[str] = []
     for field_name, filters in query.items():
         for bound_filter in filters:
             parts.append(f"{field_name}={_format_filter_value(bound_filter.value)}")
@@ -129,14 +132,18 @@ def _format_query_log(
     )
 
 
+def _sort_key(row: dict[str, object], field_name: str) -> Any:
+    return cast(Any, row[field_name])
+
+
 def _build_page(
-    model: type[BaseModel],
-    rows: list[dict[str, object]],
+    model: type[TModel],
+    rows: builtins.list[dict[str, object]],
     *,
     page: int,
     page_size: int | None,
-    sort_by: str | tuple[str, ...] | list[str] | None,
-) -> DataPage[BaseModel]:
+    sort_by: str | tuple[str, ...] | builtins.list[str] | None,
+) -> DataPage[TModel]:
     sort_values: tuple[str, ...]
     if sort_by is None:
         sort_values = ()
@@ -147,7 +154,7 @@ def _build_page(
     for current_sort in reversed(sort_values):
         reverse = current_sort.startswith("-")
         field_name = current_sort[1:] if reverse else current_sort
-        rows = sorted(rows, key=lambda row: row[field_name], reverse=reverse)
+        rows = sorted(rows, key=lambda row: _sort_key(row, field_name), reverse=reverse)
 
     resolved_page_size = page_size or model.datasource.default_page_size or len(rows) or 1
     total_items = len(rows)
@@ -168,11 +175,11 @@ class User(BaseModel):
     datasource = DatasourceMetadata(paginated=True, default_page_size=1, max_page_size=2)
     sync_calls = 0
     async_calls = 0
-    requested_pages: list[int] = []
+    requested_pages: builtins.list[int] = []
 
-    id: int = define_field(primary_key=True, filters=[EqualsFilter, InListFilter])
-    name: str = define_field(filters=[EqualsFilter, ContainsFilter], sortable=True)
-    email: str = define_field(filters=[EqualsFilter])
+    id = define_field(primary_key=True, filters=[EqualsFilter, InListFilter])
+    name = define_field(filters=[EqualsFilter, ContainsFilter], sortable=True)
+    email = define_field(filters=[EqualsFilter])
     posts = create_relation(to="Post", relation_type="one-to-many", foreign_key="author_id")
 
     @staticmethod
@@ -181,11 +188,13 @@ class User(BaseModel):
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | tuple[str, ...] | list[str] | None = None,
+        sort_by: str | tuple[str, ...] | builtins.list[str] | None = None,
     ) -> DataPage["User"]:
         User.sync_calls += 1
         User.requested_pages.append(page)
-        REQUEST_LOG.append(_format_query_log("user", filters, page=page, page_size=page_size, sort_by=sort_by))
+        REQUEST_LOG.append(
+            _format_query_log("user", filters, page=page, page_size=page_size, sort_by=sort_by)
+        )
         rows = [row for row in USERS if _matches_query(row, filters)]
         return _build_page(User, rows, page=page, page_size=page_size, sort_by=sort_by)
 
@@ -195,11 +204,15 @@ class User(BaseModel):
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | tuple[str, ...] | list[str] | None = None,
+        sort_by: str | tuple[str, ...] | builtins.list[str] | None = None,
     ) -> DataPage["User"]:
         User.async_calls += 1
         User.requested_pages.append(page)
-        REQUEST_LOG.append(_format_query_log("user_async", filters, page=page, page_size=page_size, sort_by=sort_by))
+        REQUEST_LOG.append(
+            _format_query_log(
+                "user_async", filters, page=page, page_size=page_size, sort_by=sort_by
+            )
+        )
         rows = [row for row in USERS if _matches_query(row, filters)]
         return _build_page(User, rows, page=page, page_size=page_size, sort_by=sort_by)
 
@@ -208,13 +221,13 @@ class Post(BaseModel):
     datasource = DatasourceMetadata(paginated=True, default_page_size=1, max_page_size=3)
     sync_calls = 0
     async_calls = 0
-    requested_pages: list[int] = []
+    requested_pages: builtins.list[int] = []
 
-    id: int = define_field(primary_key=True, filters=[EqualsFilter, InListFilter])
-    title: str = define_field(filters=[EqualsFilter, ContainsFilter], sortable=True)
-    published_date: datetime = define_field(filters=[DateTimeRangeFilter], sortable=True)
-    content: str = define_field(filters=[EqualsFilter, ContainsFilter])
-    author_id: int = define_field(filters=[EqualsFilter, InListFilter])
+    id = define_field(primary_key=True, filters=[EqualsFilter, InListFilter])
+    title = define_field(filters=[EqualsFilter, ContainsFilter], sortable=True)
+    published_date = define_field(filters=[DateTimeRangeFilter], sortable=True)
+    content = define_field(filters=[EqualsFilter, ContainsFilter])
+    author_id = define_field(filters=[EqualsFilter, InListFilter])
     author = create_relation(to=User, relation_type="many-to-one", foreign_key="author_id")
 
     @staticmethod
@@ -223,11 +236,13 @@ class Post(BaseModel):
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | tuple[str, ...] | list[str] | None = None,
+        sort_by: str | tuple[str, ...] | builtins.list[str] | None = None,
     ) -> DataPage["Post"]:
         Post.sync_calls += 1
         Post.requested_pages.append(page)
-        REQUEST_LOG.append(_format_query_log("post", filters, page=page, page_size=page_size, sort_by=sort_by))
+        REQUEST_LOG.append(
+            _format_query_log("post", filters, page=page, page_size=page_size, sort_by=sort_by)
+        )
         rows = [row for row in POSTS if _matches_query(row, filters)]
         return _build_page(Post, rows, page=page, page_size=page_size, sort_by=sort_by)
 
@@ -237,11 +252,15 @@ class Post(BaseModel):
         *,
         page: int = 1,
         page_size: int | None = None,
-        sort_by: str | tuple[str, ...] | list[str] | None = None,
+        sort_by: str | tuple[str, ...] | builtins.list[str] | None = None,
     ) -> DataPage["Post"]:
         Post.async_calls += 1
         Post.requested_pages.append(page)
-        REQUEST_LOG.append(_format_query_log("post_async", filters, page=page, page_size=page_size, sort_by=sort_by))
+        REQUEST_LOG.append(
+            _format_query_log(
+                "post_async", filters, page=page, page_size=page_size, sort_by=sort_by
+            )
+        )
         rows = [row for row in POSTS if _matches_query(row, filters)]
         return _build_page(Post, rows, page=page, page_size=page_size, sort_by=sort_by)
 

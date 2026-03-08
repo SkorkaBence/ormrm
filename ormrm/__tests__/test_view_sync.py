@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from tests.fake_services import (
+from .fake_services import (
     REQUEST_LOG,
     Post,
     User,

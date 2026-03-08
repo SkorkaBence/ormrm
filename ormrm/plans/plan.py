@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ormrm.models import BaseModel
-from ormrm.plans.steps import PlanStep
-from ormrm.query import BoundFilter, ModelQuery
-from ormrm.schema import FieldDefinition
+from ..models import BaseModel
+from ..query import BoundFilter, ModelQuery
+from ..schema import FieldDefinition
+from .steps import PlanStep
 
 
 @dataclass(frozen=True, repr=False)
