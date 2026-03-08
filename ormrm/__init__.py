@@ -1,5 +1,5 @@
-from ormrm.datasource import DataPage, DatasourceMetadata
-from ormrm.filters import (
+from .datasource import DataPage, DatasourceMetadata
+from .filters import (
     BaseFilter,
     ContainsFilter,
     DateTimeRange,
@@ -7,8 +7,8 @@ from ormrm.filters import (
     EqualsFilter,
     InListFilter,
 )
-from ormrm.models import BaseModel
-from ormrm.plans import (
+from .models import BaseModel
+from .plans import (
     CollectRecordsStep,
     DeriveRootFilterStep,
     FetchRootRecordsStep,
@@ -18,9 +18,9 @@ from ormrm.plans import (
     ViewExecutionPlan,
     ViewRequest,
 )
-from ormrm.query import BoundFilter, ModelQuery
-from ormrm.schema import FieldDefinition, RelationDefinition, create_relation, define_field
-from ormrm.views import (
+from .query import BoundFilter, ModelQuery
+from .schema import FieldDefinition, RelationDefinition, create_relation, define_field
+from .views import (
     Page,
     PaginationConfig,
     View,
