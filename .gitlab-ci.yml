@@ -1,4 +1,4 @@
-image: buildtools.docker.pkg.csfcloud.com/arm64/generic/python:3.12
+image: ${CI_IMAGE_PY}
 
 variables:
   GIT_SUBMODULE_STRATEGY: recursive
