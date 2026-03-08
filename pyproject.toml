@@ -14,6 +14,10 @@ license-files = ["LICENSE"]
 classifiers = ["Development Status :: 2 - Pre-Alpha", "Environment :: Console"]
 dependencies = []
 
+[project.urls]
+"Home Page" = "https://github.com/SkorkaBence/ormrm"
+Repository = "https://github.com/SkorkaBence/ormrm.git"
+
 [project.optional-dependencies]
 test = [
     "black",
